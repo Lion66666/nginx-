@@ -1,0 +1,206 @@
+nginx
+nginx是十分轻量级的http的服务器
+高性能的http和反向代理服务器
+支持高达50000个连接数
+最新版本0.8.x 稳定版为0.7.x
+
+nginx的安装和启动
+课程是直接rpm包安装
+rpm -ivh nginx-1.8.0-1.el7.ngx.x86_64.rpm
+源代码编译（见pdf文件）
+
+开启nginx服务前需要把httpd服务关闭
+
+nginx主配置文件
+/etc/nginx/nginx.conf
+拓展配置文件在
+/etc/nginx/conf.d
+目录下  配置虚拟主机
+
+
+nginx下虚拟主机配置
+基于ip
+基于端口
+基于名称
+
+
+基于名称配置字段
+server {
+    listen       80;  #http监听的端口
+    server_name  www.baidu.com #虚拟主机名
+ 
+    location / {  	#location字段不做匹配是可以省略
+    root   /usr/share/nginx/baidu.com; #网站根目录
+    index  index.html index.htm;  #网站主页
+}
+创建相应的网站根目录
+mkdir -r /usr/share/nginx/baidu.com
+echo 'this is baidu.com' > /usr/share/nginx/baidu.com/index.html
+
+虚拟主机名字段可以用正则匹配
+location字段也可以用正则匹配
+
+
+安全的连接https
+https是http协议的安全版
+
+数据加密方式
+1)对称加密
+2）非对称加密
+3）单向加密
+
+
+nginx的https配置思路
+
+servera为服务段
+serverb为CA中心
+
+servera
+1.创建私钥
+2.创建证书颁发请求
+3.将证书颁发请求提交给CA中心
+
+serverb 为CA中心
+1.CA经过 资料审核后为servera机器创建证书
+2.证书创建成功将证书颁发给servera
+3.servera取回合法证书后拷贝至默认的目录下
+4.将证书的位置写在ssl的网站的配置文件中
+
+
+访问控制
+location / {
+root html;
+index index.html index.htm;
+auth_basic"xxxx";     #访问界面对话框上的提示信息
+auth_basic_user_file /usr/share/nginx/passwd.db; #密码保存的位置
+}
+
+htpasswd -cm /usr/share/nginx/passwd.db 用户名
+输入密码
+确认密码
+
+访问控制也可以用allow和deny字段来配置
+
+
+rewrite
+rewrite对称URL Rewrite URL重写
+URL Rewrite 最常见的
+应用是 URL 伪静态化,是将动态页面显示为静态页面方式的一种技术
+
+location：只匹配$path，不匹配主机名等其他信息
+if：可以匹配除路径以外的其他信息，如主机名，客户端ip等
+if的语法应用于server和location环境内
+if
+if(匹配表达式){匹配成功则执行大括号中的地址重写}
+
+匹配
+改写 {rewrite 旧地址 新地址 标记位}
+
+
+nginx反向代理
+
+作用：可以用来作负载均衡服务器，缓存服务器，web服务器加速
+
+
+同向代理和异向代理（同步传输和异步）的区别  例子
+
+  假设用户执行一个上传文件操作,因为用户网速又比较慢,因此需要花半个小时才能把文件传到服务器。squid 的同步代理在用户开始上传后就和后台建立了连 接,半小时后文件上传结束,由此可见,后台服务器连接保持了半个小时;而 nginx异步代理就是先将此文件收到 nginx 上,因此仅仅是 nginx 和用户 保持了半小时连接,后台服务器在这半小时内没有为这个请求开启连接,半小时后用户上传结束,nginx 才将上传内容发到后台,nginx 和后台之间的带宽 是很充裕的,所以只花了一秒钟就将请求发送到了后台,由此可见,后台服务器连接保持了一秒。同步传输花了后台服务器半个小时,异步传输只花一秒,可见优化 程度很大。
+
+
+nginx反向代理配置
+一对一
+servera配置apache
+serverb配置nginx代理服务器
+
+首先在servera上配置完整的apache的虚拟主机
+
+serverb  nginx
+修改配置文件 加上需要代理的URL地址或端口等参数即可
+重启服务
+
+[root@serverb ~]# cd /etc/nginx/conf.d/
+[root@serverb conf.d]# vim www.proxy.com.conf
+server {
+listen  80；
+server_name  www.proxy.com;
+location / {
+proxy_pass http://192.168.0.12;  #确定需要代理的 URL,端口或 socket。
+}
+
+systemctl restart nginx
+
+
+一对多
+
+一对多和一对一类似
+只需在主配置文件中将加上需要代理的主机组的字段
+再在拓展配置文件上写上组名称
+[root@serverb ~]# vim /etc/nginx/nginx.conf
+	upstream apache-servers {    #组名自定义
+	server 192.168.0.13:80;
+	server 192.168.0.13:80;
+	}
+[root@serverb ~]# vim /etc/nginx/conf.d/www.proxy.com.conf
+location / {
+	proxy_pass http://apache-servers; #代理的组名
+        
+        proxy_set_header Host $host;  
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504 http_404;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_redirect off;
+   #这堆参数的作用在于能够准确的找到与用户查找相对应的虚拟主机 
+   防止后端的apache服务器有多台虚拟主机，代理找错主机。
+}
+
+[root@serverb ~]# systemctl restart nginx
+
+upstream
+作用:HTTP 负载均衡模块。upstream 这个字段设置一群服务器,可以将这个字段放在proxy_pass 和 fastcgi_pass 指令中作为一个单独的实体,它们可以是监听不同端口的服务器,并且也可以是同时监听 TCP 和 Unix socket 的服务器。
+
+分配方式
+轮询
+权重(weight)
+ip_hash    每个请求按访问 ip 的 hash 结果分配,这样每个访客固定访问一个后端服务器,可以解决 session 的问题。
+fair 按后端服务器的响应时间来分配请求,响应时间短的优先分配。
+url_hash(第三方)  按访问 url 的 hash 结果来分配请求,使每个 url 定向到同一个后端服务器,后端服务器为缓存时比较有效。
+
+nginx缓存
+在主配置文件中加入缓存的参数
+然后将参数中指定缓存目录创建出来
+缓存目录的拥有者为nginx
+[root@serverb ~]# vim /etc/nginx/nginx.conf
+proxy_temp_path /usr/share/nginx/proxy_temp_dir 1 2;
+proxy_cache_path /usr/share/nginx/proxy_cache_dir levels=1:2 keys_zone=cache_web:50m inactive=1d max_size=30g;
+
+
+[root@serverb ~]# mkdir -p /usr/share/nginx/proxy_temp_dir /usr/share/nginx/proxy_cache_dir
+[root@serverb ~]# chown nginx /usr/share/nginx/proxy_temp_dir/ /usr/share/nginx/proxy_cache_dir/
+
+[root@serverb ~]# vim /etc/nginx/conf.d/www.proxy.com.conf
+location / {
+proxy_pass http://apache-servers;
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504 http_404;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_redirect off;
+
+
+client_max_body_size 10m;
+client_body_buffer_size 128k;
+proxy_connect_timeout 90;
+proxy_send_timeout 90;
+proxy_read_timeout 90;
+proxy_cache cache_web;
+proxy_cache_valid 200 302 12h;
+proxy_cache_valid 301 1d;
+proxy_cache_valid any 1h;
+proxy_buffer_size 4k;
+proxy_buffers  432k;
+proxy_busy_buffers_size 64k;
+proxy_temp_file_write_size 64k;
+#对缓存做相关设置,如缓存文件大小等
+}
+
+[root@serverb ~]# systemctl restart nginx
